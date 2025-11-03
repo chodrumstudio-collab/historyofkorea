@@ -22,7 +22,15 @@
   
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="apple-touch-icon" href="/app-icon.svg" />
+  <link rel="shortcut icon" href="/favicon.svg" />
+  
+  <!-- Apple Touch Icon (Safari 북마크/홈 화면 추가용) -->
+  <!-- Safari는 루트 경로의 apple-touch-icon을 자동으로 찾습니다 -->
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.svg" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
+  
+  <!-- 여러 크기 아이콘 (호환성) -->
+  <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg" />
   
   <!-- PWA Icons -->
   <link rel="manifest" href="/manifest.json" />
