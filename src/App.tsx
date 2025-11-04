@@ -110,8 +110,8 @@ function App() {
             </div>
           )}
           
-          <FunFactCard />
-          <TriviaCard />
+          <FunFactCard events={data.data.Events} births={data.data.Births} />
+          <TriviaCard events={data.data.Events} births={data.data.Births} />
         </main>
 
         <Footer />
