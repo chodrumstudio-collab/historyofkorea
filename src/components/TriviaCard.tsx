@@ -23,18 +23,143 @@ function getDateBasedIndex(date: Date, max: number): number {
 }
 
 /**
+ * 텍스트에서 주요 키워드 추출
+ */
+function extractKeyWords(text: string): { entity: string | null; action: string | null } {
+  // 인물명, 사건명 추출
+  const entityPatterns = [
+    /([가-힣]+)이|가/g,
+    /([가-힣]+)의/g,
+    /([가-힣]+)에서/g,
+  ];
+  
+  let entity: string | null = null;
+  for (const pattern of entityPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1] && match[1].length >= 2 && match[1].length <= 10) {
+      entity = match[1];
+      break;
+    }
+  }
+  
+  // 동사 추출
+  const actionPatterns = [
+    /([가-힣]+)했다|했다/g,
+    /([가-힣]+)했다|했다/g,
+    /([가-힣]+)했다|했다/g,
+  ];
+  
+  let action: string | null = null;
+  for (const pattern of actionPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      action = match[1];
+      break;
+    }
+  }
+  
+  return { entity, action };
+}
+
+/**
+ * 더 구체적이고 재미있는 퀴즈 질문 생성
+ */
+function generateTriviaQuestion(item: HistoricalItem, isBirth: boolean): { question: string; answer: string } | null {
+  const year = item.year || '';
+  const text = item.text;
+  
+  if (!text || text.length < 5) {
+    return null;
+  }
+  
+  // 키워드 추출
+  const { entity } = extractKeyWords(text);
+  
+  // 질문 패턴들
+  const questionPatterns: Array<{ question: string; answer: string }> = [];
+  
+  // 패턴 1: 연도 추측
+  if (year && !isNaN(Number(year))) {
+    const currentYear = new Date().getFullYear();
+    const yearDiff = currentYear - Number(year);
+    
+    if (yearDiff > 0 && yearDiff < 2000) {
+      questionPatterns.push({
+        question: `${text}는 몇 년 전에 일어난 일일까요?`,
+        answer: `${yearDiff}년 전인 ${year}년에 일어났습니다. ${text}`
+      });
+      
+      questionPatterns.push({
+        question: `${entity || '이 사건'}이 일어난 연도는?`,
+        answer: `${year}년입니다. ${text}`
+      });
+    }
+  }
+  
+  // 패턴 2: 연도 숨기기
+  if (year && text.includes(year)) {
+    const questionText = text.replace(new RegExp(`${year}년?`, 'g'), '____년').trim();
+    questionPatterns.push({
+      question: `____에 채워넣을 연도는? "${questionText}"`,
+      answer: `${year}년입니다. ${text}`
+    });
+  }
+  
+  // 패턴 3: 인물/사건 기반 질문
+  if (entity) {
+    questionPatterns.push({
+      question: `${entity}${isBirth ? '이 태어난' : '과 관련된 사건이 일어난'} 연도는?`,
+      answer: `${year}년입니다. ${text}`
+    });
+    
+    questionPatterns.push({
+      question: `${year}년 오늘, ${entity}${isBirth ? '이 태어났습니다' : '과 관련된 중요한 사건이 있었습니다'}. 이 사건의 상세 내용은?`,
+      answer: text
+    });
+  }
+  
+  // 패턴 4: 사건 설명 기반 질문
+  if (text.length > 20) {
+    // 텍스트의 앞부분을 숨기고 질문 만들기
+    const words = text.split(/\s+/);
+    if (words.length > 3) {
+      const hiddenPart = words.slice(0, Math.min(3, words.length - 2)).join(' ');
+      const visiblePart = words.slice(Math.min(3, words.length - 2)).join(' ');
+      
+      questionPatterns.push({
+        question: `${year}년 오늘, ____ ${visiblePart}?`,
+        answer: `${hiddenPart} ${visiblePart}. ${text}`
+      });
+    }
+  }
+  
+  // 기본 패턴
+  if (questionPatterns.length === 0) {
+    questionPatterns.push({
+      question: `${text}가 일어난 연도는?`,
+      answer: `${year}년입니다. ${text}`
+    });
+  }
+  
+  // 날짜 기반으로 질문 선택
+  const today = new Date();
+  const selectedIndex = getDateBasedIndex(today, questionPatterns.length);
+  return questionPatterns[selectedIndex];
+}
+
+/**
  * 오늘 날짜에 맞는 퀴즈 생성
  */
 function generateTrivia(events?: HistoricalItem[], births?: HistoricalItem[]): { question: string; answer: string } | null {
   const today = new Date();
-  const allItems: HistoricalItem[] = [];
+  const allItems: Array<HistoricalItem & { isBirth: boolean }> = [];
   
   // Events와 Births를 합쳐서 하나의 배열로 만들기
   if (events && events.length > 0) {
-    allItems.push(...events);
+    allItems.push(...events.map(item => ({ ...item, isBirth: false })));
   }
   if (births && births.length > 0) {
-    allItems.push(...births);
+    allItems.push(...births.map(item => ({ ...item, isBirth: true })));
   }
   
   if (allItems.length === 0) {
@@ -50,28 +175,8 @@ function generateTrivia(events?: HistoricalItem[], births?: HistoricalItem[]): {
     return null;
   }
   
-  const year = selectedItem.year || '';
-  const text = selectedItem.text;
-  
-  // 퀴즈 질문 생성: 연도를 숨기고 질문으로 만들기
-  let question = text;
-  let answer = year ? `${year}년` : '';
-  
-  // 연도가 포함된 텍스트인 경우, 연도를 제거하고 질문으로 만들기
-  if (year && text.includes(year)) {
-    question = text.replace(new RegExp(`${year}년?`, 'g'), '____').trim();
-    question = question.replace(/^[,\s\-]+|[,\s\-]+$/g, '').trim(); // 앞뒤 쉼표/하이픈 제거
-    if (!question.endsWith('?')) {
-      question += '?';
-    }
-    answer = `${year}년, ${text}`;
-  } else {
-    // 연도가 없는 경우, 질문을 다르게 생성
-    question = `${text}가 일어난(인물인) 연도는?`;
-    answer = year ? `${year}년` : '알 수 없음';
-  }
-  
-  return { question, answer };
+  // 구체적인 퀴즈 질문 생성
+  return generateTriviaQuestion(selectedItem, selectedItem.isBirth);
 }
 
 export function TriviaCard({ events, births }: TriviaCardProps) {
