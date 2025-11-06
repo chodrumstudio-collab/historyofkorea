@@ -23,14 +23,14 @@ function getDateBasedIndex(date: Date, max: number): number {
 }
 
 /**
- * 텍스트에서 주요 키워드 추출
+ * 텍스트에서 주요 키워드 추출 (더 구체적으로)
  */
-function extractKeyWords(text: string): { entity: string | null; action: string | null } {
+function extractKeyWords(text: string): { entity: string | null; location: string | null; action: string | null; details: string[] } {
   // 인물명, 사건명 추출
   const entityPatterns = [
-    /([가-힣]+)이|가/g,
-    /([가-힣]+)의/g,
-    /([가-힣]+)에서/g,
+    /([가-힣]{2,10})이|가/g,
+    /([가-힣]{2,10})의/g,
+    /([가-힣]{2,10})은|는/g,
   ];
   
   let entity: string | null = null;
@@ -42,11 +42,26 @@ function extractKeyWords(text: string): { entity: string | null; action: string 
     }
   }
   
-  // 동사 추출
+  // 장소 추출
+  const locationPatterns = [
+    /([가-힣]{2,10})에서/g,
+    /([가-힣]{2,10})에/g,
+    /([가-힣]{2,10})로|으로/g,
+  ];
+  
+  let location: string | null = null;
+  for (const pattern of locationPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1] && match[1].length >= 2 && match[1].length <= 10) {
+      location = match[1];
+      break;
+    }
+  }
+  
+  // 동작 추출
   const actionPatterns = [
-    /([가-힣]+)했다|했다/g,
-    /([가-힣]+)했다|했다/g,
-    /([가-힣]+)했다|했다/g,
+    /([가-힣]{2,8})(했다|하였다|되었다|되었다)/g,
+    /([가-힣]{2,8})(했다|하였다|되었다|되었다)/g,
   ];
   
   let action: string | null = null;
@@ -58,7 +73,23 @@ function extractKeyWords(text: string): { entity: string | null; action: string 
     }
   }
   
-  return { entity, action };
+  // 세부 정보 추출 (중요한 명사들)
+  const details: string[] = [];
+  const detailPatterns = [
+    /([가-힣]{2,8})을|를/g,
+    /([가-힣]{2,8})과|와/g,
+  ];
+  
+  for (const pattern of detailPatterns) {
+    const matches = text.matchAll(pattern);
+    for (const match of matches) {
+      if (match[1] && match[1].length >= 2 && match[1].length <= 8) {
+        details.push(match[1]);
+      }
+    }
+  }
+  
+  return { entity, location, action, details: [...new Set(details)].slice(0, 3) };
 }
 
 /**
@@ -73,71 +104,102 @@ function generateTriviaQuestion(item: HistoricalItem, isBirth: boolean): { quest
   }
   
   // 키워드 추출
-  const { entity } = extractKeyWords(text);
+  const { entity, location, action, details } = extractKeyWords(text);
   
   // 질문 패턴들
   const questionPatterns: Array<{ question: string; answer: string }> = [];
   
-  // 패턴 1: 연도 추측
+  // 패턴 1: 연도 추측 (더 구체적으로)
   if (year && !isNaN(Number(year))) {
     const currentYear = new Date().getFullYear();
     const yearDiff = currentYear - Number(year);
+    const century = Math.floor((Number(year) - 1) / 100) + 1;
     
     if (yearDiff > 0 && yearDiff < 2000) {
       questionPatterns.push({
-        question: `${text}는 몇 년 전에 일어난 일일까요?`,
-        answer: `${yearDiff}년 전인 ${year}년에 일어났습니다. ${text}`
+        question: `${text}는 몇 년 전에 일어난 일일까요? (정확한 연도도 맞춰보세요!)`,
+        answer: `${yearDiff}년 전인 ${year}년(${century}세기)에 일어났습니다. ${text}${location ? ` 이 사건은 ${location}에서 일어났습니다.` : ''}`
       });
       
       questionPatterns.push({
-        question: `${entity || '이 사건'}이 일어난 연도는?`,
-        answer: `${year}년입니다. ${text}`
+        question: `${entity || '이 사건'}${location ? `이 ${location}에서` : ''} 일어난 연도는?`,
+        answer: `${year}년입니다. ${text}${details.length > 0 ? ` 이 사건과 관련된 주요 요소는 ${details.join(', ')} 등이 있습니다.` : ''}`
       });
     }
   }
   
-  // 패턴 2: 연도 숨기기
+  // 패턴 2: 연도 숨기기 (더 구체적으로)
   if (year && text.includes(year)) {
     const questionText = text.replace(new RegExp(`${year}년?`, 'g'), '____년').trim();
     questionPatterns.push({
-      question: `____에 채워넣을 연도는? "${questionText}"`,
-      answer: `${year}년입니다. ${text}`
+      question: `다음 문장의 빈칸에 들어갈 연도는? "${questionText}"`,
+      answer: `정답은 ${year}년입니다. ${text}${location ? ` 이 사건은 ${location}에서 일어났으며` : ''}${entity ? ` ${entity}이(가) 관련되어 있습니다.` : ''}`
     });
   }
   
-  // 패턴 3: 인물/사건 기반 질문
+  // 패턴 3: 인물/사건 기반 질문 (더 구체적으로)
   if (entity) {
     questionPatterns.push({
-      question: `${entity}${isBirth ? '이 태어난' : '과 관련된 사건이 일어난'} 연도는?`,
-      answer: `${year}년입니다. ${text}`
+      question: `${entity}${isBirth ? '이 태어난' : '과 관련된 사건이 일어난'} 연도는? ${location ? `(힌트: ${location}에서 일어났습니다)` : ''}`,
+      answer: `${year}년입니다. ${text}${location ? ` 이 사건은 ${location}에서 일어났습니다.` : ''}${action ? ` 주요 행동은 ${action}이었습니다.` : ''}`
     });
     
     questionPatterns.push({
-      question: `${year}년 오늘, ${entity}${isBirth ? '이 태어났습니다' : '과 관련된 중요한 사건이 있었습니다'}. 이 사건의 상세 내용은?`,
-      answer: text
+      question: `${year}년 오늘, ${entity}${isBirth ? '이 태어났습니다' : '과 관련된 중요한 사건이 있었습니다'}. 이 사건의 구체적인 내용은 무엇일까요?`,
+      answer: `${text}${location ? ` 이 사건은 ${location}에서 일어났습니다.` : ''}${details.length > 0 ? ` 관련된 주요 요소는 ${details.join(', ')} 등이 있습니다.` : ''}`
     });
-  }
-  
-  // 패턴 4: 사건 설명 기반 질문
-  if (text.length > 20) {
-    // 텍스트의 앞부분을 숨기고 질문 만들기
-    const words = text.split(/\s+/);
-    if (words.length > 3) {
-      const hiddenPart = words.slice(0, Math.min(3, words.length - 2)).join(' ');
-      const visiblePart = words.slice(Math.min(3, words.length - 2)).join(' ');
-      
+    
+    if (location) {
       questionPatterns.push({
-        question: `${year}년 오늘, ____ ${visiblePart}?`,
-        answer: `${hiddenPart} ${visiblePart}. ${text}`
+        question: `${entity}${isBirth ? '이 태어난' : '과 관련된 사건이 일어난'} 장소는 어디일까요? (연도도 맞춰보세요!)`,
+        answer: `${location}에서 일어났습니다. ${year}년 오늘, ${text}${action ? ` 이 사건의 핵심은 ${action}이었습니다.` : ''}`
       });
     }
   }
   
-  // 기본 패턴
+  // 패턴 4: 장소 기반 질문
+  if (location) {
+    questionPatterns.push({
+      question: `${year}년 오늘, ${location}에서 어떤 중요한 사건이 일어났을까요?`,
+      answer: `${text}${entity ? ` 이 사건의 중심에는 ${entity}이(가) 있었습니다.` : ''}${action ? ` 주요 행동은 ${action}이었습니다.` : ''}`
+    });
+  }
+  
+  // 패턴 5: 동작 기반 질문
+  if (action) {
+    questionPatterns.push({
+      question: `${year}년 오늘, 누가(또는 무엇이) ${action}했을까요?`,
+      answer: `${entity || '이 사건'}이 ${action}했습니다. ${text}${location ? ` 이는 ${location}에서 일어났습니다.` : ''}`
+    });
+  }
+  
+  // 패턴 6: 세부 정보 기반 질문
+  if (details.length > 0) {
+    questionPatterns.push({
+      question: `${year}년 오늘 일어난 사건과 관련된 주요 요소는? (${details.slice(0, 2).join(', ')} 등)`,
+      answer: `맞습니다! ${details.join(', ')} 등이 관련되어 있습니다. ${text}${entity ? ` 이 사건의 중심에는 ${entity}이(가) 있었습니다.` : ''}`
+    });
+  }
+  
+  // 패턴 7: 사건 설명 기반 질문 (더 구체적으로)
+  if (text.length > 20) {
+    const words = text.split(/\s+/);
+    if (words.length > 4) {
+      const hiddenPart = words.slice(0, Math.min(4, words.length - 2)).join(' ');
+      const visiblePart = words.slice(Math.min(4, words.length - 2)).join(' ');
+      
+      questionPatterns.push({
+        question: `${year}년 오늘, 다음 문장의 빈칸을 채우세요: "____ ${visiblePart}"`,
+        answer: `정답은 "${hiddenPart}"입니다. ${text}${location ? ` 이 사건은 ${location}에서 일어났습니다.` : ''}`
+      });
+    }
+  }
+  
+  // 기본 패턴 (더 구체적으로)
   if (questionPatterns.length === 0) {
     questionPatterns.push({
-      question: `${text}가 일어난 연도는?`,
-      answer: `${year}년입니다. ${text}`
+      question: `${text}가 일어난 연도는? ${location ? `(힌트: ${location}에서 일어났습니다)` : ''}`,
+      answer: `${year}년입니다. ${text}${location ? ` 이 사건은 ${location}에서 일어났습니다.` : ''}${entity ? ` ${entity}이(가) 관련되어 있습니다.` : ''}`
     });
   }
   
